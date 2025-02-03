@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Triangle Calculator</title>
+    <style>
+        body {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px 0;
+            border: 1px solid #ccc;
+        }
+        .input-group {
+            margin: 10px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        input {
+            width: 80px;
+            padding: 5px;
+        }
+        .error {
+            color: red;
+            margin: 10px 0;
+        }
+        .results {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="triangleCanvas"></canvas>
+    <div id="error" class="error"></div>
+    <div class="input-group">
+        <input type="number" id="sideA" placeholder="边a" min="1">
+        <input type="number" id="sideB" placeholder="边b" min="1">
+        <input type="number" id="sideC" placeholder="边c" min="1">
+    </div>
+    <div id="results" class="results"></div>
+    <div class="input-group">
+        <input type="number" id="BG" placeholder="BG" readonly>
+        <input type="number" id="WG" placeholder="WG">
+        <input type="number" id="centerOffset" placeholder="中心偏差" readonly>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('triangleCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 400;
+        canvas.height = 300;
+
+        function isValidTriangle(a, b, c) {
+            return (a + b > c) && (b + c > a) && (a + c > b);
+        }
+
+        function drawText(text, x, y, angle = 0) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.fillText(text, 0, -5);
+            ctx.restore();
+        }
+
+        function drawTriangle(a, b, c, height, seg1, seg2) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 计算缩放比例
+            const scale = Math.min(canvas.width * 0.7 / c, canvas.height * 0.7 / height);
+            
+            // 设置三角形底边的起点
+            const startX = (canvas.width - c * scale) / 2;
+            const startY = canvas.height * 0.8;
+
+            // 计算顶点坐标
+            const topX = startX + seg1 * scale;
+            const topY = startY - height * scale;
+
+            // 绘制三角形
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(startX + c * scale, startY);
+            ctx.lineTo(topX, topY);
+            ctx.lineTo(startX, startY);
+            ctx.stroke();
+
+            // 画高线
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(topX, topY);
+            ctx.lineTo(topX, startY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 设置文本样式
+            ctx.font = '12px Arial';
+            ctx.fillStyle = 'black';
+            ctx.textAlign = 'center';
+
+            // 标注边长
+            drawText(`c=${c.toFixed(2)}`, startX + (c * scale) / 2, startY + 20);
+            const angleLeft = Math.atan2(height, -seg1);
+            drawText(`a=${a.toFixed(2)}`, startX + (seg1 * scale) / 2, startY - (height * scale) / 2, angleLeft);
+            const angleRight = Math.atan2(height, seg2);
+            drawText(`b=${b.toFixed(2)}`, topX + (seg2 * scale) / 2, startY - (height * scale) / 2, angleRight);
+            
+            // 标注高和分段
+            drawText(`h=${height.toFixed(2)}`, topX + 15, startY - (height * scale) / 2);
+            drawText(`${seg1.toFixed(2)}`, startX + (seg1 * scale) / 2, startY + 35);
+            drawText(`${seg2.toFixed(2)}`, startX + seg1 * scale + (seg2 * scale) / 2, startY + 35);
+        }
+
+        function calculate() {
+            const a = parseFloat(document.getElementById('sideA').value);
+            const b = parseFloat(document.getElementById('sideB').value);
+            const c = parseFloat(document.getElementById('sideC').value);
+            const errorDiv = document.getElementById('error');
+
+            // 检查输入是否有效
+            if (isNaN(a) || isNaN(b) || isNaN(c) || a <= 0 || b <= 0 || c <= 0) {
+                errorDiv.textContent = "请输入有效的正数值";
+                return;
+            }
+
+            // 检查是否能形成三角形
+            if (!isValidTriangle(a, b, c)) {
+                errorDiv.textContent = "这些边长无法构成三角形(任意两边之和必须大于第三边)";
+                return;
+            }
+
+            errorDiv.textContent = ""; // 清除错误信息
+
+            // 使用海伦公式计算高
+            const s = (a + b + c) / 2;
+            const area = Math.sqrt(s * (s - a) * (s - b) * (s - c));
+            const height = (2 * area) / c;
+
+            // 使用余弦定理计算底边分段
+            const seg1 = Math.sqrt(a * a - height * height);
+            const seg2 = c - seg1;
+
+            drawTriangle(a, b, c, height, seg1, seg2);
+
+            document.getElementById('results').innerHTML = `
+                高: ${height.toFixed(2)}<br>
+                底边分段1: ${seg1.toFixed(2)}<br>
+                底边分段2: ${seg2.toFixed(2)}
+            `;
+
+            // 自动填入BG值
+            document.getElementById('BG').value = c;
+
+            // 计算中心偏差
+            const wg = parseFloat(document.getElementById('WG').value) || 0;
+            const bg = c;
+            const centerOffset = seg1 + wg / 2 - bg / 2;
+            document.getElementById('centerOffset').value = centerOffset.toFixed(2);
+        }
+
+        // 监听输入变化
+        ['sideA', 'sideB', 'sideC', 'WG'].forEach(id => {
+            document.getElementById(id).addEventListener('input', calculate);
+        });
+
+        // 初始计算
+        calculate();
+    </script>
+</body>
+</html>
