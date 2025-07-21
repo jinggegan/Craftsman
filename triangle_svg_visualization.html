@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三角形SVG可视化工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background: #fff;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 10px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.5em;
+            margin: 10px 0 20px 0;
+        }
+        .input-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+            justify-content: center;
+        }
+        .input-item {
+            display: flex;
+            flex-direction: column;
+            min-width: 90px;
+            flex: 1 1 90px;
+        }
+        label {
+            margin-bottom: 3px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        input {
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input:disabled {
+            background-color: #f5f5f5;
+            cursor: not-allowed;
+        }
+        .result-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .result-group label {
+            margin-right: 5px;
+        }
+        .validation-message {
+            text-align: center;
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 4px;
+            display: none;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #b71c1c;
+            display: block;
+        }
+        #svg-container {
+        width: 100% !important;
+        height: 400px !important;
+        margin: 0 auto 10px auto;
+        border: none !important;
+        background: transparent !important;
+        position: relative;
+        overflow: visible !important;
+    }
+        svg {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 2vw;
+            }
+            #svg-container {
+                height: 60vw;
+                min-height: 180px;
+            }
+            .input-item {
+                min-width: 70px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>三角形可视化工具</h1>
+    <div class="input-group">
+        <div class="input-item">
+            <label for="a">边长 a</label>
+            <input type="number" id="a" min="1" value="1200" oninput="drawTriangle()">
+        </div>
+        <div class="input-item">
+            <label for="b">边长 b</label>
+            <input type="number" id="b" min="1" value="2200" oninput="drawTriangle()">
+        </div>
+        <div class="input-item">
+            <label for="c">边长 c (底边)</label>
+            <input type="number" id="c" min="1" value="1500" oninput="drawTriangle(); syncBG()">
+        </div>
+        <div class="input-item">
+            <label for="wg">WG</label>
+            <input type="number" id="wg" min="0" value="900" oninput="drawTriangle()">
+        </div>
+    </div>
+    <div class="input-group">
+        <div class="input-item">
+            <label for="bg">BG</label>
+            <input type="number" id="bg" readonly style="background: transparent; border: none; box-shadow: none; padding: 0; margin: 0;">
+        </div>
+        <div class="input-item">
+            <label for="wg2" style="visibility:hidden;">WG2</label>
+            <input style="visibility:hidden;">
+        </div>
+    </div>
+    <div class="result-group">
+        <label for="center-offset">中心偏差:</label>
+        <input type="number" id="center-offset" readonly style="width:100px; background: transparent; border: none; box-shadow: none; padding: 0; margin: 0;">
+    </div>
+    <div class="validation-message" id="validation-message"></div>
+    <div id="svg-container">
+        <svg id="svg"></svg>
+    </div>
+</div>
+<script>
+const svg = document.getElementById('svg');
+const aInput = document.getElementById('a');
+const bInput = document.getElementById('b');
+const cInput = document.getElementById('c');
+const wgInput = document.getElementById('wg');
+const bgInput = document.getElementById('bg');
+const centerOffsetInput = document.getElementById('center-offset');
+const validationMessage = document.getElementById('validation-message');
+const svgContainer = document.getElementById('svg-container');
+
+// 清除SVG内容
+function clearSvg() {
+    // 兼容宜搭环境的SVG清空方式
+    svg.innerHTML = '';
+}
+
+// 创建SVG元素
+function createSvgElement(tag, attributes) {
+    const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attributes)) {
+        element.setAttribute(key, value);
+    }
+    return element;
+}
+
+// 校验三角形
+function isValidTriangle(a, b, c) {
+    return a > 0 && b > 0 && c > 0 && a + b > c && a + c > b && b + c > a;
+}
+
+// 余弦定理计算三角形顶点坐标
+function calculateTriangleCoordinates(a, b, c) {
+    // 底边AB，A(0,0), B(c,0)
+    // C点：与A距离为a，与B距离为b
+    // 利用两圆交点公式
+    const x = (c*c + a*a - b*b) / (2*c);
+    let y = 0;
+    if (a*a - x*x >= 0) {
+        y = -Math.sqrt(a*a - x*x); // 取负y，使三角形朝上
+    }
+    return {
+        A: {x: 0, y: 0},
+        B: {x: c, y: 0},
+        C: {x: x, y: y},
+        baseMidpoint: {x: c/2, y: 0}
+    };
+}
+
+// 计算高线和垂足
+function calculateHeightAndFoot(a, b, c, coordinates) {
+    const {A, B, C} = coordinates;
+    // 底边向量
+    const ab = {x: B.x - A.x, y: B.y - A.y};
+    const ac = {x: C.x - A.x, y: C.y - A.y};
+    const abLen2 = ab.x*ab.x + ab.y*ab.y;
+    const proj = (ac.x*ab.x + ac.y*ab.y) / abLen2;
+    const foot = {x: A.x + proj*ab.x, y: A.y + proj*ab.y};
+    const footOutside = proj < 0 || proj > 1;
+    const height = Math.hypot(C.x - foot.x, C.y - foot.y);
+    return {height, foot, footOutside};
+}
+
+// 计算中心偏差
+function calculateCenterOffset(c, wg, coordinates) {
+    // c边中点x - WG中点x
+    return (coordinates.baseMidpoint.x) - (coordinates.C.x + wg/2);
+}
+
+// 缩放与居中
+function getTransform(coordinates, wg, marginRatio, svgW, svgH) {
+    // 只考虑三角形和WG线段
+    const {A, B, C} = coordinates;
+    const wgEnd = {x: C.x + wg, y: C.y};
+    let minX = Math.min(A.x, B.x, C.x, wgEnd.x);
+    let maxX = Math.max(A.x, B.x, C.x, wgEnd.x);
+    let minY = Math.min(A.y, B.y, C.y, wgEnd.y);
+    let maxY = Math.max(A.y, B.y, C.y, wgEnd.y);
+
+    // 留边距
+    const marginX = svgW * marginRatio;
+    const marginY = svgH * marginRatio;
+    const availW = svgW - 2 * marginX;
+    const availH = svgH - 2 * marginY;
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    let scale = Math.min(availW / width, (availH * 0.9) / height); // 垂直缩放减小10%
+    scale = Math.max(scale, 0.05);
+
+    // 使三角形整体居中，底边c与画布底边平行且有margin
+    const offsetX = marginX + (availW / 2) - ((minX + maxX) / 2) * scale;
+    const offsetY = marginY + (availH * 0.4) + ((height / 2) - maxY) * scale; // 进一步上移5%
+
+    return { scale, offsetX, offsetY };
+}
+
+// 绘制主函数
+function drawTriangle() {
+    // 清除SVG
+    clearSvg();
+
+    // 获取输入
+    const a = parseFloat(aInput.value) || 0;
+    const b = parseFloat(bInput.value) || 0;
+    const c = parseFloat(cInput.value) || 0;
+    const wg = parseFloat(wgInput.value) || 0;
+    bgInput.value = c;
+
+    // 校验
+    if (!isValidTriangle(a, b, c)) {
+        validationMessage.textContent = '错误：输入的边长无法构成三角形';
+        validationMessage.className = 'validation-message error';
+        centerOffsetInput.value = '';
+        return;
+    } else {
+        validationMessage.textContent = '';
+        validationMessage.className = 'validation-message';
+    }
+
+    // 设置SVG尺寸
+    // 为宜搭环境设置默认尺寸
+    // 强制设置容器尺寸
+    svgContainer.style.width = '100%';
+    svgContainer.style.height = '400px';
+    const svgW = svgContainer.offsetWidth || 800;
+    const svgH = svgContainer.offsetHeight || 400;
+    svg.setAttribute('width', svgW);
+    svg.setAttribute('height', svgH);
+    // 移除viewBox以兼容宜搭环境
+
+    // 计算三角形
+    const coordinates = calculateTriangleCoordinates(a, b, c);
+    const {A, B, C, baseMidpoint} = coordinates;
+    const heightInfo = calculateHeightAndFoot(a, b, c, coordinates);
+    const {height, foot, footOutside} = heightInfo;
+
+    // WG线段
+    const wgEnd = {x: C.x + wg, y: C.y};
+    const wgMid = {x: C.x + wg/2, y: C.y};
+
+    // 缩放与居中
+    const {scale, offsetX, offsetY} = getTransform(coordinates, wg, 0.08, svgW, svgH);
+
+    // 缩放坐标转换
+    function transformPoint(pt) {
+        return {
+            x: pt.x * scale + offsetX,
+            y: pt.y * scale + offsetY
+        };
+    }
+
+    const SA = transformPoint(A);
+    const SB = transformPoint(B);
+    const SC = transformPoint(C);
+    const Sfoot = transformPoint(foot);
+    const SbaseMid = transformPoint(baseMidpoint);
+    const SwgEnd = transformPoint(wgEnd);
+    const SwgMid = transformPoint(wgMid);
+
+    // 绘制底边延长线（如垂足在外）
+    if (footOutside) {
+        const dashLine = createSvgElement('line', {
+            x1: foot.x < A.x ? Sfoot.x : SB.x,
+            y1: foot.x < A.x ? Sfoot.y : SB.y,
+            x2: foot.x < A.x ? SA.x : Sfoot.x,
+            y2: foot.x < A.x ? SA.y : Sfoot.y,
+            stroke: '#666',
+            'stroke-width': '1',
+            'stroke-dasharray': '4,4'
+        });
+        svg.appendChild(dashLine);
+    }
+
+    // 绘制三角形
+    const trianglePath = createSvgElement('path', {
+        d: `M ${SA.x} ${SA.y} L ${SB.x} ${SB.y} L ${SC.x} ${SC.y} Z`,
+        stroke: '#000',
+        'stroke-width': '2',
+        fill: 'transparent'
+    });
+    svg.appendChild(trianglePath);
+
+    // 绘制高线
+    const heightLine = createSvgElement('line', {
+        x1: SC.x,
+        y1: SC.y,
+        x2: Sfoot.x,
+        y2: Sfoot.y,
+        stroke: '#666',
+        'stroke-width': '1',
+        'stroke-dasharray': '4,4'
+    });
+    svg.appendChild(heightLine);
+
+    // 垂足红点
+    const footCircle = createSvgElement('circle', {
+        cx: Sfoot.x,
+        cy: Sfoot.y,
+        r: '3',
+        fill: '#f00',
+        stroke: '#333',
+        'stroke-width': '1'
+    });
+    svg.appendChild(footCircle);
+
+    // WG线段
+    const wgLine = createSvgElement('line', {
+        x1: SC.x,
+        y1: SC.y,
+        x2: SwgEnd.x,
+        y2: SwgEnd.y,
+        stroke: '#000',
+        'stroke-width': '2'
+    });
+    svg.appendChild(wgLine);
+
+    // WG标注
+    const wgLabel = createSvgElement('text', {
+        x: (SC.x + SwgEnd.x)/2,
+        y: SC.y + 20,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    wgLabel.textContent = `WG=${wg}`;
+    svg.appendChild(wgLabel);
+
+    // 三边标注
+    // a(AC) - 左上
+    const aLabel = createSvgElement('text', {
+        x: (SA.x + SC.x)/2 - 12,
+        y: (SA.y + SC.y)/2 - 8,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    aLabel.textContent = `a=${a}`;
+    svg.appendChild(aLabel);
+
+    // b(BC) - 右上
+    const bLabel = createSvgElement('text', {
+        x: (SB.x + SC.x)/2 + 12,
+        y: (SB.y + SC.y)/2 - 8,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    bLabel.textContent = `b=${b}`;
+    svg.appendChild(bLabel);
+
+    // 高和底边分段值
+    // 底边分段 - 左段
+    const segALabel = createSvgElement('text', {
+        x: (SA.x + Sfoot.x)/2,
+        y: (SA.y + Sfoot.y)/2 - 5,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    const segA = Math.hypot(Sfoot.x - SA.x, Sfoot.y - SA.y) / scale;
+    segALabel.textContent = segA.toFixed(0);
+    svg.appendChild(segALabel);
+
+    // 底边分段 - 右段
+    const segBLabel = createSvgElement('text', {
+        x: (SB.x + Sfoot.x)/2,
+        y: (SB.y + Sfoot.y)/2 - 5,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    const segB = Math.hypot(SB.x - Sfoot.x, SB.y - Sfoot.y) / scale;
+    segBLabel.textContent = segB.toFixed(0);
+    svg.appendChild(segBLabel);
+
+    // 高
+    const heightLabel = createSvgElement('text', {
+        x: (SC.x + Sfoot.x)/2 + 15,
+        y: (SC.y + Sfoot.y)/2,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    heightLabel.textContent = `h=${height.toFixed(0)}`;
+    svg.appendChild(heightLabel);
+
+    // 标注c边尺寸
+    const cLabel = createSvgElement('text', {
+        x: SbaseMid.x,
+        y: SbaseMid.y - 15,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#000'
+    });
+    cLabel.textContent = `c=${c.toFixed(2)}`;
+    svg.appendChild(cLabel);
+
+    // 中心偏差可视化
+    // 计算下端y
+    const bottomY = Math.max(SA.y, SB.y) + 30;
+
+    // WG中点垂直线
+    const wgMidLine = createSvgElement('line', {
+        x1: SwgMid.x,
+        y1: SwgMid.y,
+        x2: SwgMid.x,
+        y2: bottomY,
+        stroke: '#00f',
+        'stroke-width': '1',
+        'stroke-dasharray': '2,3'
+    });
+    svg.appendChild(wgMidLine);
+
+    // c边中点垂直线
+    const baseMidLine = createSvgElement('line', {
+        x1: SbaseMid.x,
+        y1: SbaseMid.y,
+        x2: SbaseMid.x,
+        y2: bottomY,
+        stroke: '#00f',
+        'stroke-width': '1',
+        'stroke-dasharray': '2,3'
+    });
+    svg.appendChild(baseMidLine);
+
+    // 红色横线
+    const redLine = createSvgElement('line', {
+        x1: SbaseMid.x,
+        y1: bottomY - 10,
+        x2: SwgMid.x,
+        y2: bottomY - 10,
+        stroke: '#f00',
+        'stroke-width': '2'
+    });
+    svg.appendChild(redLine);
+
+    // 中心偏差标注
+    const centerOffset = calculateCenterOffset(c, wg, coordinates);
+    centerOffsetInput.value = centerOffset.toFixed(2);
+
+    const centerOffsetLabel = createSvgElement('text', {
+        x: (SbaseMid.x + SwgMid.x)/2,
+        y: bottomY + 15,
+        'font-family': 'Arial',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        'text-anchor': 'middle',
+        fill: '#f00'
+    });
+    centerOffsetLabel.textContent = `中心偏差: ${centerOffset.toFixed(2)}`;
+    svg.appendChild(centerOffsetLabel);
+}
+
+// BG自动同步c
+function syncBG() {
+    bgInput.value = cInput.value;
+}
+
+// 确保DOM加载完成后初始化
+// 确保DOM加载完成后初始化
+    document.addEventListener('DOMContentLoaded', function() {
+    // 显式初始化BG和中心偏差
+    syncBG();
+    centerOffsetInput.value = '0.00';
+    drawTriangle();
+
+    // 强制触发重绘
+    setTimeout(() => drawTriangle(), 100);
+
+    // 手动触发一次输入事件确保数据绑定
+    cInput.dispatchEvent(new Event('input'));
+    wgInput.dispatchEvent(new Event('input'));
+})();
+
+    // 移除事件监听器，使用内联事件处理
+</script>
+</body>
+</html>
